@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.Json;
 using ForeignExchangeRateAPI.Data;
 using ForeignExchangeRateAPI.Domain;
@@ -18,7 +17,7 @@ public class ExchangeRatesController : ControllerBase {
 
     public ExchangeRatesController(AppDbContext dbContext, IConfiguration configuration) {
         _dbContext = dbContext;
-        _apiKey = configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
+        _apiKey = "demo";// configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
     }
 
     [HttpGet]
@@ -31,7 +30,7 @@ public class ExchangeRatesController : ControllerBase {
     }
 
     [HttpGet("{baseCurrency}/{quoteCurrency}")]
-    public async Task<ActionResult<ExchangeRate>> GetRate(Currency baseCurrency, Currency quoteCurrency) {
+    public async Task<ActionResult<ExchangeRate>> GetRate(string baseCurrency, string quoteCurrency) {
         var rate = await FindRate(baseCurrency, quoteCurrency);
 
         if (rate is not null) {
@@ -67,6 +66,8 @@ public class ExchangeRatesController : ControllerBase {
             return existing;
         }
 
+        await EnsureCurrenciesExistAsync(request.BaseCurrency, request.QuoteCurrency);
+
         var rate = new ExchangeRate {
             BaseCurrency = request.BaseCurrency,
             QuoteCurrency = request.QuoteCurrency,
@@ -83,7 +84,7 @@ public class ExchangeRatesController : ControllerBase {
     }
 
     [HttpPut("{baseCurrency}/{quoteCurrency}")]
-    public async Task<ActionResult<ExchangeRate>> UpdateRate(Currency baseCurrency, Currency quoteCurrency, ExchangeRate request) {
+    public async Task<ActionResult<ExchangeRate>> UpdateRate(string baseCurrency, string quoteCurrency, ExchangeRate request) {
         var priceError = ValidatePrices(request);
         if (!string.IsNullOrEmpty(priceError)) {
             return BadRequest(priceError);
@@ -102,7 +103,7 @@ public class ExchangeRatesController : ControllerBase {
     }
 
     [HttpDelete("{baseCurrency}/{quoteCurrency}")]
-    public async Task<IActionResult> DeleteRate(Currency baseCurrency, Currency quoteCurrency) {
+    public async Task<IActionResult> DeleteRate(string baseCurrency, string quoteCurrency) {
         var rate = await _dbContext.ExchangeRates.FirstOrDefaultAsync(item => item.BaseCurrency == baseCurrency && item.QuoteCurrency == quoteCurrency);
 
         if (rate is null) {
@@ -118,13 +119,13 @@ public class ExchangeRatesController : ControllerBase {
         return Ok();
     }
 
-    private Task<ExchangeRate?> FindActiveRate(Currency baseCurrency, Currency quoteCurrency) =>
+    private Task<ExchangeRate?> FindActiveRate(string baseCurrency, string quoteCurrency) =>
         _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && rate.Status);
 
-    private Task<ExchangeRate?> FindRate(Currency baseCurrency, Currency quoteCurrency) =>
+    private Task<ExchangeRate?> FindRate(string baseCurrency, string quoteCurrency) =>
         _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
 
-    private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(Currency baseCurrency, Currency quoteCurrency) {
+    private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(string baseCurrency, string quoteCurrency) {
 
         string QUERY_URL = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={baseCurrency}&to_currency={quoteCurrency}&apikey={_apiKey}";
         Uri queryUri = new Uri(QUERY_URL);
@@ -132,10 +133,12 @@ public class ExchangeRatesController : ControllerBase {
         AlphaVantageExchangeRateResponse? response;
 
         try {
-            using (WebClient client = new()) {
-                response = JsonSerializer.Deserialize<AlphaVantageExchangeRateResponse>(client.DownloadString(queryUri));
+            //Alpha Vantage example used WebClient but it is obsolete, so we use HttpClient instead
+            using(HttpClient http = new()) {
+                var json = await http.GetStringAsync(queryUri);
+                response = JsonSerializer.Deserialize<AlphaVantageExchangeRateResponse>(json);
             }
-        } catch (Exception exception) when (exception is WebException or JsonException) {
+        } catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException) {
             return Problem(detail: "The exchange rate provider is unavailable.");
         }
 
@@ -157,6 +160,8 @@ public class ExchangeRatesController : ControllerBase {
             return NotFound();
         }
 
+        await EnsureCurrenciesExistAsync(baseCurrency, quoteCurrency);
+
         // We assume provider a valid bid, ask and lastRefreshed fields. Otherwise, we'd had tryParse validation here.
         var rate = new ExchangeRate {
             BaseCurrency = baseCurrency,
@@ -171,6 +176,29 @@ public class ExchangeRatesController : ControllerBase {
         _dbContext.ExchangeRates.Add(rate);
         await _dbContext.SaveChangesAsync();
         return rate;
+    }
+
+    // We ensure the currencies exist in the Currencies table. If they don't, we add them
+    private async Task EnsureCurrenciesExistAsync(string baseCurrency, string quoteCurrency) {
+        await EnsureCurrencyExistAsync(baseCurrency);
+        await EnsureCurrencyExistAsync(quoteCurrency);
+    }
+
+    private async Task EnsureCurrencyExistAsync(string currency) {
+        var exists = await _dbContext.Currencies.AnyAsync(row => row.Code == currency);
+
+        if (exists) {
+            return;
+        }
+
+        _dbContext.Currencies.Add(new Currency {
+            Code = currency,
+            Status = true,
+            CreatedAt = Now,
+            UpdatedAt = Now
+        });
+
+        await _dbContext.SaveChangesAsync();
     }
 
     private static string? ValidatePrices(ExchangeRate request) {

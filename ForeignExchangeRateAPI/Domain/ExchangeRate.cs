@@ -12,9 +12,9 @@ public class ExchangeRate {
     [Key]
     public int Id { get; set; }
 
-    public Currency BaseCurrency { get; set; }
+    public string BaseCurrency { get; set; } = string.Empty;
 
-    public Currency QuoteCurrency { get; set; }
+    public string QuoteCurrency { get; set; } = string.Empty;
 
     [Precision(18, 8)]
     public decimal Bid { get; set; }

@@ -9,10 +9,24 @@ public class AppDbContext : DbContext {
 
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
 
+    public DbSet<Currency> Currencies => Set<Currency>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) {
         var rate = modelBuilder.Entity<ExchangeRate>();
 
-        rate.Property(r => r.BaseCurrency).HasConversion<string>().HasMaxLength(3);
-        rate.Property(r => r.QuoteCurrency).HasConversion<string>().HasMaxLength(3);
+        rate.Property(r => r.BaseCurrency).HasMaxLength(3);
+        rate.Property(r => r.QuoteCurrency).HasMaxLength(3);
+
+        rate.HasOne<Currency>()
+            .WithMany()
+            .HasForeignKey(r => r.BaseCurrency)
+            .HasPrincipalKey(currency => currency.Code)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        rate.HasOne<Currency>()
+            .WithMany()
+            .HasForeignKey(r => r.QuoteCurrency)
+            .HasPrincipalKey(currency => currency.Code)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

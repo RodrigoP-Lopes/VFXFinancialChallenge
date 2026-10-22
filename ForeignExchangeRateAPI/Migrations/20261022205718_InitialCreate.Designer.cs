@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ForeignExchangeRateAPI.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261022173157_InitialCreate")]
+    [Migration("20261022205718_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -24,6 +24,26 @@ namespace ForeignExchangeRateAPI.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("ForeignExchangeRateAPI.Domain.Currency", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("Status")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Code");
+
+                    b.ToTable("Currencies");
+                });
 
             modelBuilder.Entity("ForeignExchangeRateAPI.Domain.ExchangeRate", b =>
                 {
@@ -62,10 +82,27 @@ namespace ForeignExchangeRateAPI.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("QuoteCurrency");
+
                     b.HasIndex("BaseCurrency", "QuoteCurrency")
                         .IsUnique();
 
                     b.ToTable("ExchangeRates");
+                });
+
+            modelBuilder.Entity("ForeignExchangeRateAPI.Domain.ExchangeRate", b =>
+                {
+                    b.HasOne("ForeignExchangeRateAPI.Domain.Currency", null)
+                        .WithMany()
+                        .HasForeignKey("BaseCurrency")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ForeignExchangeRateAPI.Domain.Currency", null)
+                        .WithMany()
+                        .HasForeignKey("QuoteCurrency")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }
