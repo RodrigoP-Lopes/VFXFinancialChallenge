@@ -1,5 +1,6 @@
-using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ForeignExchangeRateAPI.Domain;
 
@@ -21,9 +22,14 @@ public class ExchangeRate {
     [Precision(18, 8)]
     public decimal Ask { get; set; }
 
+    /// <summary>
+    /// Data is not deleted, but marked as inactive (soft delete). Inactive pairs are not fetched 
+    /// </summary>
     public bool Status { get; set; } = true;
 
+    [Column(TypeName = "timestamp without time zone")]
     public DateTime CreatedAt { get; set; }
 
+    [Column(TypeName = "timestamp without time zone")]
     public DateTime UpdatedAt { get; set; }
 }

@@ -1,5 +1,8 @@
+using System.Net;
+using System.Text.Json;
 using ForeignExchangeRateAPI.Data;
 using ForeignExchangeRateAPI.Domain;
+using ForeignExchangeRateAPI.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,10 +12,14 @@ namespace ForeignExchangeRateAPI.Controllers;
 [Route("api/rates")]
 public class ExchangeRatesController : ControllerBase {
     private readonly AppDbContext _dbContext;
+    private readonly string _apiKey;
 
-    public ExchangeRatesController(AppDbContext dbContext) => _dbContext = dbContext;
+    private static DateTime Now => DateTime.SpecifyKind(new DateTime(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond), DateTimeKind.Unspecified);
 
-    private static DateTime Now => DateTime.UtcNow.AddHours(1);
+    public ExchangeRatesController(AppDbContext dbContext, IConfiguration configuration) {
+        _dbContext = dbContext;
+        _apiKey = configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
+    }
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ExchangeRate>>> GetRates() {
@@ -25,8 +32,13 @@ public class ExchangeRatesController : ControllerBase {
 
     [HttpGet("{baseCurrency}/{quoteCurrency}")]
     public async Task<ActionResult<ExchangeRate>> GetRate(Currency baseCurrency, Currency quoteCurrency) {
-        var rate = await FindActiveRate(baseCurrency, quoteCurrency);
-        return rate is null ? NotFound() : rate;
+        var rate = await FindRate(baseCurrency, quoteCurrency);
+
+        if (rate is not null) {
+            return rate.Status ? rate : NotFound();
+        }
+
+        return await FetchAlphaVantageRate(baseCurrency, quoteCurrency);
     }
 
     [HttpPost]
@@ -108,6 +120,58 @@ public class ExchangeRatesController : ControllerBase {
 
     private Task<ExchangeRate?> FindActiveRate(Currency baseCurrency, Currency quoteCurrency) =>
         _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && rate.Status);
+
+    private Task<ExchangeRate?> FindRate(Currency baseCurrency, Currency quoteCurrency) =>
+        _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
+
+    private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(Currency baseCurrency, Currency quoteCurrency) {
+
+        string QUERY_URL = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={baseCurrency}&to_currency={quoteCurrency}&apikey={_apiKey}";
+        Uri queryUri = new Uri(QUERY_URL);
+
+        AlphaVantageExchangeRateResponse? response;
+
+        try {
+            using (WebClient client = new()) {
+                response = JsonSerializer.Deserialize<AlphaVantageExchangeRateResponse>(client.DownloadString(queryUri));
+            }
+        } catch (Exception exception) when (exception is WebException or JsonException) {
+            return Problem(detail: "The exchange rate provider is unavailable.");
+        }
+
+        if (response == null) {
+            return Problem(detail: "The exchange rate provider returned an empty response.");
+        }
+
+        if (!string.IsNullOrEmpty(response.ErrorMessage)) {
+            return Problem(detail: response.ErrorMessage);
+        }
+
+        if (!string.IsNullOrEmpty(response.Information)) {
+            return Problem(detail: response.Information);
+        }
+
+        var quote = response.RealtimeCurrencyExchangeRate;
+
+        if (quote == null) {
+            return NotFound();
+        }
+
+        // We assume provider a valid bid, ask and lastRefreshed fields. Otherwise, we'd had tryParse validation here.
+        var rate = new ExchangeRate {
+            BaseCurrency = baseCurrency,
+            QuoteCurrency = quoteCurrency,
+            Bid = decimal.Parse(quote.BidPrice),
+            Ask = decimal.Parse(quote.AskPrice),
+            Status = true,
+            CreatedAt = Now,
+            UpdatedAt = DateTime.Parse(quote.LastRefreshed)
+        };
+
+        _dbContext.ExchangeRates.Add(rate);
+        await _dbContext.SaveChangesAsync();
+        return rate;
+    }
 
     private static string? ValidatePrices(ExchangeRate request) {
         if (request.Bid <= 0 || request.Ask <= 0) {

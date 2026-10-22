@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ForeignExchangeRateAPI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4936460646cc3d6db13bd7d05e258837d8ab1f1b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fee056eb260254a6c51637889b0a036f3890511b")]
 [assembly: System.Reflection.AssemblyProductAttribute("ForeignExchangeRateAPI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ForeignExchangeRateAPI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -44,7 +44,7 @@ namespace ForeignExchangeRateAPI.Migrations
                         .HasColumnType("numeric(18,8)");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("QuoteCurrency")
                         .IsRequired()
@@ -55,7 +55,7 @@ namespace ForeignExchangeRateAPI.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.HasKey("Id");
 

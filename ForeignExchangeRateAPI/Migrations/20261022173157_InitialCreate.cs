@@ -23,8 +23,8 @@ namespace ForeignExchangeRateAPI.Migrations
                     Bid = table.Column<decimal>(type: "numeric(18,8)", precision: 18, scale: 8, nullable: false),
                     Ask = table.Column<decimal>(type: "numeric(18,8)", precision: 18, scale: 8, nullable: false),
                     Status = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp without time zone", nullable: false)
                 },
                 constraints: table =>
                 {

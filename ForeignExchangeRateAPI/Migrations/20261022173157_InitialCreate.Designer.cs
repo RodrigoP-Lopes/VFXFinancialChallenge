@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ForeignExchangeRateAPI.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261022130051_InitialCreate")]
+    [Migration("20261022173157_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -47,7 +47,7 @@ namespace ForeignExchangeRateAPI.Migrations
                         .HasColumnType("numeric(18,8)");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("QuoteCurrency")
                         .IsRequired()
@@ -58,7 +58,7 @@ namespace ForeignExchangeRateAPI.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.HasKey("Id");
 
