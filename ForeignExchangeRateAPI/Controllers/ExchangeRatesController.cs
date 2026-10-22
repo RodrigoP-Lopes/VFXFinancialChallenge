@@ -17,7 +17,7 @@ public class ExchangeRatesController : ControllerBase {
 
     public ExchangeRatesController(AppDbContext dbContext, IConfiguration configuration) {
         _dbContext = dbContext;
-        _apiKey = "demo";// configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
+        _apiKey = configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
     }
 
     [HttpGet]
