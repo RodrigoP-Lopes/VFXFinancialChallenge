@@ -42,7 +42,10 @@ public class ExchangeRatesController : ControllerBase {
 
     [HttpPost]
     public async Task<ActionResult<ExchangeRate>> CreateRate(ExchangeRate request) {
-        if (request.BaseCurrency == request.QuoteCurrency) {
+        var baseCurrency = Normalize(request.BaseCurrency);
+        var quoteCurrency = Normalize(request.QuoteCurrency);
+
+        if (baseCurrency == quoteCurrency) {
             return BadRequest("Base and quote currencies must be different.");
         }
 
@@ -51,11 +54,11 @@ public class ExchangeRatesController : ControllerBase {
             return BadRequest(priceError);
         }
 
-        var existing = await _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == request.BaseCurrency && rate.QuoteCurrency == request.QuoteCurrency);
+        var existing = await _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
 
         if (existing is not null) {
             if (existing.Status) {
-                return Conflict($"An exchange rate for {request.BaseCurrency}/{request.QuoteCurrency} already exists.");
+                return Conflict($"An exchange rate for {baseCurrency}/{quoteCurrency} already exists.");
             }
 
             existing.Bid = request.Bid;
@@ -66,11 +69,11 @@ public class ExchangeRatesController : ControllerBase {
             return existing;
         }
 
-        await EnsureCurrenciesExistAsync(request.BaseCurrency, request.QuoteCurrency);
+        await EnsureCurrenciesExistAsync(baseCurrency, quoteCurrency);
 
         var rate = new ExchangeRate {
-            BaseCurrency = request.BaseCurrency,
-            QuoteCurrency = request.QuoteCurrency,
+            BaseCurrency = baseCurrency,
+            QuoteCurrency = quoteCurrency,
             Bid = request.Bid,
             Ask = request.Ask,
             Status = true,
@@ -104,7 +107,7 @@ public class ExchangeRatesController : ControllerBase {
 
     [HttpDelete("{baseCurrency}/{quoteCurrency}")]
     public async Task<IActionResult> DeleteRate(string baseCurrency, string quoteCurrency) {
-        var rate = await _dbContext.ExchangeRates.FirstOrDefaultAsync(item => item.BaseCurrency == baseCurrency && item.QuoteCurrency == quoteCurrency);
+        var rate = await FindRate(baseCurrency, quoteCurrency);
 
         if (rate is null) {
             return NotFound();
@@ -119,13 +122,21 @@ public class ExchangeRatesController : ControllerBase {
         return Ok();
     }
 
-    private Task<ExchangeRate?> FindActiveRate(string baseCurrency, string quoteCurrency) =>
-        _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && rate.Status);
+    private Task<ExchangeRate?> FindActiveRate(string baseCurrency, string quoteCurrency) {
+        baseCurrency = Normalize(baseCurrency);
+        quoteCurrency = Normalize(quoteCurrency);
+        return _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && rate.Status);
+    }
 
-    private Task<ExchangeRate?> FindRate(string baseCurrency, string quoteCurrency) =>
-        _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
+    private Task<ExchangeRate?> FindRate(string baseCurrency, string quoteCurrency) {
+        baseCurrency = Normalize(baseCurrency);
+        quoteCurrency = Normalize(quoteCurrency);
+        return _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
+    }
 
     private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(string baseCurrency, string quoteCurrency) {
+        baseCurrency = Normalize(baseCurrency);
+        quoteCurrency = Normalize(quoteCurrency);
 
         string QUERY_URL = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={baseCurrency}&to_currency={quoteCurrency}&apikey={_apiKey}";
         Uri queryUri = new(QUERY_URL);
@@ -200,6 +211,11 @@ public class ExchangeRatesController : ControllerBase {
 
         await _dbContext.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// Upper-cases a currency code so "usd" and "USD" are the same currency.
+    /// </summary>
+    private static string Normalize(string code) => code.ToUpperInvariant();
 
     private static string? ValidatePrices(ExchangeRate request) {
         if (request.Bid <= 0 || request.Ask <= 0) {
