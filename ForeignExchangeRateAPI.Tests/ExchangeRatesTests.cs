@@ -1,4 +1,3 @@
-using System.Net;
 using ForeignExchangeRateAPI.Controllers;
 using ForeignExchangeRateAPI.Domain;
 using Microsoft.AspNetCore.Mvc;
@@ -15,6 +14,9 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
         _controller = new ExchangeRatesController(_fixture.Context, _fixture.Configuration);
     }
 
+    /// <summary>
+    /// Returns the rates currently stored in the database.
+    /// </summary>
     [Fact]
     public async Task GetRates_ReturnsStoredRates() {
         await CreateRate("USD", "EUR", 0.91m, 0.92m);
@@ -25,6 +27,9 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
         Assert.Contains(rates, rate => rate.BaseCurrency == "USD" && rate.QuoteCurrency == "EUR");
     }
 
+    /// <summary>
+    /// Creates a rate and returns the same record on a later read.
+    /// </summary>
     [Fact]
     public async Task CreateRate_PersistsRate() {
         var result = await CreateRate("GBP", "JPY", 190.50m, 191.50m);
@@ -37,6 +42,9 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
         Assert.Equal(created, fetchedRate);
     }
 
+    /// <summary>
+    /// Updates the bid and ask of an existing rate.
+    /// </summary>
     [Fact]
     public async Task UpdateRate_ChangesPrices() {
         await CreateRate("EUR", "GBP", 0.85m, 0.86m);
@@ -48,6 +56,9 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
         Assert.Equal(0.88m, updated.Ask);
     }
 
+    /// <summary>
+    /// Soft deletes a rate so it no longer appears in the list.
+    /// </summary>
     [Fact]
     public async Task DeleteRate_RemovesRateFromList() {
         await CreateRate("CNY", "JPY", 20.10m, 20.20m);
@@ -61,6 +72,9 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
         Assert.DoesNotContain(stored, rate => rate.BaseCurrency == "CNY" && rate.QuoteCurrency == "JPY");
     }
 
+    /// <summary>
+    /// Ensures that when a new rate is created with currencies that do not exist in the database, those currencies are also inserted.
+    /// </summary>
     [Fact]
     public async Task CreateRate_WithNewCurrencies_InsertsTheCurrencies() {
 
@@ -71,6 +85,9 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
         Assert.Contains("SEK", codes);
     }
 
+    /// <summary>
+    /// Fetches a missing pair from Alpha Vantage and stores the result. Checks currencies are also inserted if they do not exist in the database.
+    /// </summary>
     [Fact]
     public async Task GetRate_WhenNotStored_FetchesFromProviderAndStoresIt() {
         var result = await _controller.GetRate("BRL", "GBP");
@@ -80,6 +97,10 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
         Assert.NotNull(rate.Bid);
         Assert.NotNull(rate.Ask);
         Assert.Contains(_fixture.Context.ExchangeRates, stored => stored.BaseCurrency == "BRL" && stored.QuoteCurrency == "GBP");
+
+        var codes = _fixture.Context.Currencies.Select(currency => currency.Code).ToList();
+        Assert.Contains("BRL", codes);
+        Assert.Contains("GBP", codes);
     }
 
     private Task<ActionResult<ExchangeRate>> CreateRate(string baseCurrency, string quoteCurrency, decimal bid, decimal ask) {

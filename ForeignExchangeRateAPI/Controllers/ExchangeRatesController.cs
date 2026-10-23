@@ -7,6 +7,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ForeignExchangeRateAPI.Controllers;
 
+/// <summary>
+/// CRUD endpoints for exchange rates
+/// </summary>
 [ApiController]
 [Route("api/rates")]
 public class ExchangeRatesController : ControllerBase {
@@ -20,6 +23,10 @@ public class ExchangeRatesController : ControllerBase {
         _apiKey = configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
     }
 
+    /// <summary>
+    /// Gets all active exchange rates, ordered by base currency and then quote currency
+    /// </summary>
+    /// <returns></returns>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ExchangeRate>>> GetRates() {
         return await _dbContext.ExchangeRates
@@ -29,6 +36,12 @@ public class ExchangeRatesController : ControllerBase {
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Gets the exchange rate for a specific currency pair. If the pair does not exist in the database, it fetches the rate from Alpha Vantage API and stores it in the database.
+    /// </summary>
+    /// <param name="baseCurrency"></param>
+    /// <param name="quoteCurrency"></param>
+    /// <returns></returns>
     [HttpGet("{baseCurrency}/{quoteCurrency}")]
     public async Task<ActionResult<ExchangeRate>> GetRate(string baseCurrency, string quoteCurrency) {
         var rate = await FindRate(baseCurrency, quoteCurrency);
@@ -40,6 +53,11 @@ public class ExchangeRatesController : ControllerBase {
         return await FetchAlphaVantageRate(baseCurrency, quoteCurrency);
     }
 
+    /// <summary>
+    /// Creates a new exchange rate for a currency pair, if it does not already exist. If the pair exists but is inactive, it reactivates it and updates the prices.
+    /// </summary>
+    /// <param name="request"></param>
+    /// <returns></returns>
     [HttpPost]
     public async Task<ActionResult<ExchangeRate>> CreateRate(ExchangeRate request) {
         var baseCurrency = Normalize(request.BaseCurrency);
@@ -86,6 +104,13 @@ public class ExchangeRatesController : ControllerBase {
         return rate;
     }
 
+    /// <summary>
+    /// Updates the bid and ask prices for an existing exchange rate
+    /// </summary>
+    /// <param name="baseCurrency"></param>
+    /// <param name="quoteCurrency"></param>
+    /// <param name="request"></param>
+    /// <returns></returns>
     [HttpPut("{baseCurrency}/{quoteCurrency}")]
     public async Task<ActionResult<ExchangeRate>> UpdateRate(string baseCurrency, string quoteCurrency, ExchangeRate request) {
         var priceError = ValidatePrices(request);
@@ -105,6 +130,12 @@ public class ExchangeRatesController : ControllerBase {
         return rate;
     }
 
+    /// <summary>
+    /// Soft deletes an exchange rate by marking it as inactive
+    /// </summary>
+    /// <param name="baseCurrency"></param>
+    /// <param name="quoteCurrency"></param>
+    /// <returns></returns>
     [HttpDelete("{baseCurrency}/{quoteCurrency}")]
     public async Task<IActionResult> DeleteRate(string baseCurrency, string quoteCurrency) {
         var rate = await FindRate(baseCurrency, quoteCurrency);
@@ -134,6 +165,12 @@ public class ExchangeRatesController : ControllerBase {
         return _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
     }
 
+    /// <summary>
+    /// Fetches the exchange rate from Alpha Vantage API and stores it in the database. If the currencies do not exist, they are created.
+    /// </summary>
+    /// <param name="baseCurrency"></param>
+    /// <param name="quoteCurrency"></param>
+    /// <returns></returns>
     private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(string baseCurrency, string quoteCurrency) {
         baseCurrency = Normalize(baseCurrency);
         quoteCurrency = Normalize(quoteCurrency);
@@ -195,6 +232,11 @@ public class ExchangeRatesController : ControllerBase {
         await EnsureCurrencyExistAsync(quoteCurrency);
     }
 
+    /// <summary>
+    /// Adds a currency to the Currencies table if it does not already exist
+    /// </summary>
+    /// <param name="currency"></param>
+    /// <returns></returns>
     private async Task EnsureCurrencyExistAsync(string currency) {
         var exists = await _dbContext.Currencies.AnyAsync(row => row.Code == currency);
 
@@ -212,9 +254,7 @@ public class ExchangeRatesController : ControllerBase {
         await _dbContext.SaveChangesAsync();
     }
 
-    /// <summary>
-    /// Upper-cases a currency code so "usd" and "USD" are the same currency.
-    /// </summary>
+    // Upper-cases a currency code so "usd" and "USD" are the same currency.
     private static string Normalize(string code) => code.ToUpperInvariant();
 
     private static string? ValidatePrices(ExchangeRate request) {

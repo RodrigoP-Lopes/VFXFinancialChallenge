@@ -4,6 +4,9 @@ using Microsoft.Extensions.Configuration;
 
 namespace ForeignExchangeRateAPI.Tests;
 
+/// <summary>
+/// Gives each test class an in-memory database and the API's configuration.
+/// </summary>
 public class DatabaseFixture : IDisposable {
     public AppDbContext Context { get; }
 
