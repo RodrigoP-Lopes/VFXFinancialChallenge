@@ -128,13 +128,13 @@ public class ExchangeRatesController : ControllerBase {
     private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(string baseCurrency, string quoteCurrency) {
 
         string QUERY_URL = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={baseCurrency}&to_currency={quoteCurrency}&apikey={_apiKey}";
-        Uri queryUri = new Uri(QUERY_URL);
+        Uri queryUri = new(QUERY_URL);
 
         AlphaVantageExchangeRateResponse? response;
 
         try {
             //Alpha Vantage example used WebClient but it is obsolete, so we use HttpClient instead
-            using(HttpClient http = new()) {
+            using (HttpClient http = new()) {
                 var json = await http.GetStringAsync(queryUri);
                 response = JsonSerializer.Deserialize<AlphaVantageExchangeRateResponse>(json);
             }
