@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vfx
+      POSTGRES_PASSWORD: vfx_dev_password
+      POSTGRES_DB: vfx_exrates
+    ports:
+      - "5432:5432"
+
+  api:
+    build: ./ForeignExchangeRateAPI
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      CONNECTION_STRINGS: Host=db;Port=5432;Database=vfx_exrates;Username=vfx;Password=vfx_dev_password
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY}
+    ports:
+      - "8080:8080"
