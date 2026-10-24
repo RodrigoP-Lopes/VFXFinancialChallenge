@@ -12,7 +12,7 @@ services:
     build: ./ForeignExchangeRateAPI
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      CONNECTION_STRINGS: Host=db;Port=5432;Database=vfx_exrates;Username=vfx;Password=vfx_dev_password
+      CONNECTION_STRING: Host=db;Port=5432;Database=vfx_exrates;Username=vfx;Password=vfx_dev_password
       ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY}
     ports:
       - "8080:8080"
