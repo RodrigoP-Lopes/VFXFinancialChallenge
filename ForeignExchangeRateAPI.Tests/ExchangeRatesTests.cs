@@ -1,6 +1,7 @@
 using ForeignExchangeRateAPI.Controllers;
 using ForeignExchangeRateAPI.Domain;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ForeignExchangeRateAPI.Tests;
 
@@ -11,7 +12,7 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
 
     public ExchangeRatesTests(DatabaseFixture fixture) {
         _fixture = fixture;
-        _controller = new ExchangeRatesController(_fixture.Context, _fixture.Configuration);
+        _controller = new ExchangeRatesController(_fixture.Context, _fixture.Configuration, NullLogger<ExchangeRatesController>.Instance);
     }
 
     /// <summary>

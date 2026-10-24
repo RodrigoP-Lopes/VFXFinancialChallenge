@@ -15,12 +15,14 @@ namespace ForeignExchangeRateAPI.Controllers;
 public class ExchangeRatesController : ControllerBase {
     private readonly AppDbContext _dbContext;
     private readonly string _apiKey;
+    private readonly ILogger<ExchangeRatesController> _logger;
 
     private static DateTime Now => DateTime.SpecifyKind(new DateTime(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond), DateTimeKind.Unspecified);
 
-    public ExchangeRatesController(AppDbContext dbContext, IConfiguration configuration) {
+    public ExchangeRatesController(AppDbContext dbContext, IConfiguration configuration, ILogger<ExchangeRatesController> logger) {
         _dbContext = dbContext;
         _apiKey = configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
+        _logger = logger;
     }
 
     /// <summary>
@@ -47,9 +49,11 @@ public class ExchangeRatesController : ControllerBase {
         var rate = await FindRate(baseCurrency, quoteCurrency);
 
         if (rate is not null) {
+            _logger.LogDebug("Rate {BaseCurrency}/{QuoteCurrency} served from the database with status {Status}.", rate.BaseCurrency, rate.QuoteCurrency, rate.Status);
             return rate.Status ? rate : NotFound();
         }
 
+        _logger.LogInformation("Rate {BaseCurrency}/{QuoteCurrency} is not stored; calling Alpha Vantage.", baseCurrency, quoteCurrency);
         return await FetchAlphaVantageRate(baseCurrency, quoteCurrency);
     }
 
@@ -84,6 +88,7 @@ public class ExchangeRatesController : ControllerBase {
             existing.Status = true;
             existing.UpdatedAt = Now;
             await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Reactivated rate {BaseCurrency}/{QuoteCurrency}.", baseCurrency, quoteCurrency);
             return existing;
         }
 
@@ -101,6 +106,7 @@ public class ExchangeRatesController : ControllerBase {
 
         _dbContext.ExchangeRates.Add(rate);
         await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("Created rate {BaseCurrency}/{QuoteCurrency} with bid {Bid} and ask {Ask}.", baseCurrency, quoteCurrency, rate.Bid, rate.Ask);
         return rate;
     }
 
@@ -127,6 +133,7 @@ public class ExchangeRatesController : ControllerBase {
         rate.Ask = request.Ask;
         rate.UpdatedAt = Now;
         await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("Updated rate {BaseCurrency}/{QuoteCurrency} to bid {Bid} and ask {Ask}.", rate.BaseCurrency, rate.QuoteCurrency, rate.Bid, rate.Ask);
         return rate;
     }
 
@@ -148,9 +155,10 @@ public class ExchangeRatesController : ControllerBase {
             rate.Status = false;
             rate.UpdatedAt = Now;
             await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Soft deleted rate {BaseCurrency}/{QuoteCurrency}.", rate.BaseCurrency, rate.QuoteCurrency);
         }
 
-        return Ok();
+        return Ok(new { message = $"Exchange rate {rate.BaseCurrency}/{rate.QuoteCurrency} deleted." });
     }
 
     private Task<ExchangeRate?> FindActiveRate(string baseCurrency, string quoteCurrency) {
@@ -187,24 +195,29 @@ public class ExchangeRatesController : ControllerBase {
                 response = JsonSerializer.Deserialize<AlphaVantageExchangeRateResponse>(json);
             }
         } catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException) {
+            _logger.LogError(exception, "Alpha Vantage request for {BaseCurrency}/{QuoteCurrency} failed.", baseCurrency, quoteCurrency);
             return Problem(detail: "The exchange rate provider is unavailable.");
         }
 
         if (response == null) {
+            _logger.LogWarning("Alpha Vantage returned an empty response for {BaseCurrency}/{QuoteCurrency}.", baseCurrency, quoteCurrency);
             return Problem(detail: "The exchange rate provider returned an empty response.");
         }
 
         if (!string.IsNullOrEmpty(response.ErrorMessage)) {
-            return Problem(detail: response.ErrorMessage);
+            _logger.LogWarning("Alpha Vantage rejected {BaseCurrency}/{QuoteCurrency}: {ProviderMessage}", baseCurrency, quoteCurrency, response.ErrorMessage);
+            return Problem(detail: "The exchange rate provider rejected the request.");
         }
 
         if (!string.IsNullOrEmpty(response.Information)) {
-            return Problem(detail: response.Information);
+            _logger.LogWarning("Alpha Vantage quota or key problem for {BaseCurrency}/{QuoteCurrency}: {ProviderMessage}", baseCurrency, quoteCurrency, response.Information);
+            return Problem(detail: "The exchange rate provider is temporarily unavailable.");
         }
 
         var quote = response.RealtimeCurrencyExchangeRate;
 
         if (quote == null) {
+            _logger.LogWarning("Alpha Vantage returned no quote for {BaseCurrency}/{QuoteCurrency}.", baseCurrency, quoteCurrency);
             return NotFound();
         }
 
@@ -223,6 +236,7 @@ public class ExchangeRatesController : ControllerBase {
 
         _dbContext.ExchangeRates.Add(rate);
         await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("Stored rate {BaseCurrency}/{QuoteCurrency} from Alpha Vantage with bid {Bid} and ask {Ask}.", baseCurrency, quoteCurrency, rate.Bid, rate.Ask);
         return rate;
     }
 
