@@ -1,110 +1,256 @@
 {
-  "info": {
-    "_postman_id": "8f1c2b64-3d1e-4c7a-9d0f-6a2b5c8e14d3",
-    "name": "Foreign Exchange Rate API",
-    "description": "CRUD requests for the Foreign Exchange Rate API. Change the baseUrl variable to match your launch profile (http://localhost:5156 for the http profile, https://localhost:7029 for https, https://localhost:44317 for IIS Express).",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://localhost:5156",
-      "type": "string"
-    }
-  ],
-  "item": [
-    {
-      "name": "List rates",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/rates",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "rates"]
-        }
-      },
-      "response": []
-    },
-    {
-      "name": "Get rate",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/rates/USD/EUR",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "rates", "USD", "EUR"]
-        }
-      },
-      "response": []
-    },
-    {
-      "name": "Create rate",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"baseCurrency\": \"USD\",\n  \"quoteCurrency\": \"EUR\",\n  \"bid\": 0.91,\n  \"ask\": 0.92\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/rates",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "rates"]
-        }
-      },
-      "response": []
-    },
-    {
-      "name": "Update rate",
-      "request": {
-        "method": "PUT",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"bid\": 0.93,\n  \"ask\": 0.94\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/rates/USD/EUR",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "rates", "USD", "EUR"]
-        }
-      },
-      "response": []
-    },
-    {
-      "name": "Delete rate",
-      "request": {
-        "method": "DELETE",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/rates/USD/EUR",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "rates", "USD", "EUR"]
-        }
-      },
-      "response": []
-    }
-  ]
+	"info": {
+		"_postman_id": "7b3eaa5e-ce2d-4147-b5a0-1d5c8b2f7ebf",
+		"name": "Foreign Exchange Rate API",
+		"description": "CRUD requests for the Foreign Exchange Rate API, ordered as an end-to-end check: run the whole collection top to bottom with the Collection Runner. Change baseUrl to match your launch profile (http://localhost:5156 for the http profile, https://localhost:7029 for https, https://localhost:44317 for IIS Express). Request 10 fetches a pair from Alpha Vantage and therefore uses one of the 25 daily calls: it only reaches the provider when the pair is not stored yet. Only creating a brand new rate publishes to the exchange-rates queue, so run request 3 against a pair that has never been stored to see a message appear. Request 1 makes the collection re-runnable.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "26608080"
+	},
+	"item": [
+		{
+			"name": "1. List rates",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/rates",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"rates"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "2. Create rate",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"baseCurrency\": \"USD\",\n  \"quoteCurrency\": \"EUR\",\n  \"bid\": 0.91,\n  \"ask\": 0.92\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/rates",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"rates"
+					]
+				},
+				"description": "Returns 409 if USD/EUR is already active, which is why request 1 runs first."
+			},
+			"response": []
+		},
+		{
+			"name": "3. Get rate",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/rates/USD/EUR",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"rates",
+						"USD",
+						"EUR"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "4. Update rate",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"bid\": 0.93,\n  \"ask\": 0.94\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/rates/USD/EUR",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"rates",
+						"USD",
+						"EUR"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "5. Get rate (after update)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/rates/USD/EUR",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"rates",
+						"USD",
+						"EUR"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "6. Delete rate",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/rates/USD/EUR",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"rates",
+						"USD",
+						"EUR"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "7. Get deleted rate (404)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/rates/USD/EUR",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"rates",
+						"USD",
+						"EUR"
+					]
+				},
+				"description": "A soft deleted pair stays a tombstone: it is not fetched from Alpha Vantage again."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5156",
+			"type": "string"
+		}
+	]
 }

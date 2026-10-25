@@ -20,13 +20,11 @@ public class AppDbContext : DbContext {
         rate.HasOne<Currency>()
             .WithMany()
             .HasForeignKey(r => r.BaseCurrency)
-            .HasPrincipalKey(currency => currency.Code)
             .OnDelete(DeleteBehavior.Restrict);
 
         rate.HasOne<Currency>()
             .WithMany()
             .HasForeignKey(r => r.QuoteCurrency)
-            .HasPrincipalKey(currency => currency.Code)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

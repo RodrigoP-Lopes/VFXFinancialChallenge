@@ -1,7 +1,9 @@
 using ForeignExchangeRateAPI.Controllers;
 using ForeignExchangeRateAPI.Domain;
+using ForeignExchangeRateAPI.Events;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace ForeignExchangeRateAPI.Tests;
 
@@ -12,7 +14,7 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
 
     public ExchangeRatesTests(DatabaseFixture fixture) {
         _fixture = fixture;
-        _controller = new ExchangeRatesController(_fixture.Context, _fixture.Configuration, NullLogger<ExchangeRatesController>.Instance);
+        _controller = new ExchangeRatesController(_fixture.Context, _fixture.Configuration, Mock.Of<ILogger<ExchangeRatesController>>(), Mock.Of<IExchangeRateEventPublisher>());
     }
 
     /// <summary>
@@ -24,7 +26,8 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
 
         var result = await _controller.GetRates();
 
-        var rates = Assert.IsAssignableFrom<IEnumerable<ExchangeRate>>(result.Value);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var rates = Assert.IsAssignableFrom<IEnumerable<ExchangeRate>>(ok.Value);
         Assert.Contains(rates, rate => rate.BaseCurrency == "USD" && rate.QuoteCurrency == "EUR");
     }
 
@@ -66,10 +69,12 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
 
         var result = await _controller.DeleteRate("CNY", "JPY");
 
-        Assert.IsType<OkResult>(result);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(ok.Value);
 
         var rates = await _controller.GetRates();
-        var stored = Assert.IsAssignableFrom<IEnumerable<ExchangeRate>>(rates.Value);
+        var okRates = Assert.IsType<OkObjectResult>(rates);
+        var stored = Assert.IsAssignableFrom<IEnumerable<ExchangeRate>>(okRates.Value);
         Assert.DoesNotContain(stored, rate => rate.BaseCurrency == "CNY" && rate.QuoteCurrency == "JPY");
     }
 

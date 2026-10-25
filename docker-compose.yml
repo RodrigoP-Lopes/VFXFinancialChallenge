@@ -3,16 +3,17 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: vfx
-      POSTGRES_PASSWORD: vfx_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: vfx_exrates
     ports:
       - "5432:5432"
 
-  api:
-    build: ./ForeignExchangeRateAPI
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      CONNECTION_STRING: Host=db;Port=5432;Database=vfx_exrates;Username=vfx;Password=vfx_dev_password
-      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY}
+      RABBITMQ_DEFAULT_USER: vfx
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
-      - "8080:8080"
+      - "5552:5552"
+      - "5672:5672"
+      - "15672:15672"

@@ -1,6 +1,8 @@
+using System.Data;
 using System.Text.Json;
 using ForeignExchangeRateAPI.Data;
 using ForeignExchangeRateAPI.Domain;
+using ForeignExchangeRateAPI.Events;
 using ForeignExchangeRateAPI.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,13 +18,15 @@ public class ExchangeRatesController : ControllerBase {
     private readonly AppDbContext _dbContext;
     private readonly string _apiKey;
     private readonly ILogger<ExchangeRatesController> _logger;
+    private readonly IExchangeRateEventPublisher _eventPublisher;
 
-    private static DateTime Now => DateTime.SpecifyKind(new DateTime(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond), DateTimeKind.Unspecified);
+    private static DateTime Now => new (DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond);
 
-    public ExchangeRatesController(AppDbContext dbContext, IConfiguration configuration, ILogger<ExchangeRatesController> logger) {
+    public ExchangeRatesController(AppDbContext dbContext, IConfiguration configuration, ILogger<ExchangeRatesController> logger, IExchangeRateEventPublisher eventPublisher) {
         _dbContext = dbContext;
         _apiKey = configuration["ALPHA_VANTAGE_API_KEY"] ?? string.Empty;
         _logger = logger;
+        _eventPublisher = eventPublisher;
     }
 
     /// <summary>
@@ -30,12 +34,21 @@ public class ExchangeRatesController : ControllerBase {
     /// </summary>
     /// <returns></returns>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ExchangeRate>>> GetRates() {
-        return await _dbContext.ExchangeRates
+    public async Task<ActionResult> GetRates() {
+        var rates = await _dbContext.ExchangeRates
+            .AsNoTracking()
             .Where(rate => rate.Status)
             .OrderBy(rate => rate.BaseCurrency)
             .ThenBy(rate => rate.QuoteCurrency)
             .ToListAsync();
+
+        if (rates.Count == 0) {
+            _logger.LogInformation("No exchange rates found.");
+            return Ok(new { message = "No exchange rates found." });
+        }
+
+        _logger.LogInformation("Returning {Count} exchange rates.", rates.Count);
+        return Ok(rates);
     }
 
     /// <summary>
@@ -46,6 +59,9 @@ public class ExchangeRatesController : ControllerBase {
     /// <returns></returns>
     [HttpGet("{baseCurrency}/{quoteCurrency}")]
     public async Task<ActionResult<ExchangeRate>> GetRate(string baseCurrency, string quoteCurrency) {
+        baseCurrency = Normalize(baseCurrency);
+        quoteCurrency = Normalize(quoteCurrency);
+
         var rate = await FindRate(baseCurrency, quoteCurrency);
 
         if (rate is not null) {
@@ -76,7 +92,7 @@ public class ExchangeRatesController : ControllerBase {
             return BadRequest(priceError);
         }
 
-        var existing = await _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
+        var existing = await FindRate(baseCurrency, quoteCurrency);
 
         if (existing is not null) {
             if (existing.Status) {
@@ -104,9 +120,8 @@ public class ExchangeRatesController : ControllerBase {
             UpdatedAt = Now
         };
 
-        _dbContext.ExchangeRates.Add(rate);
-        await _dbContext.SaveChangesAsync();
-        _logger.LogInformation("Created rate {BaseCurrency}/{QuoteCurrency} with bid {Bid} and ask {Ask}.", baseCurrency, quoteCurrency, rate.Bid, rate.Ask);
+        await SaveNewRateAsync(rate, "manual");
+
         return rate;
     }
 
@@ -119,12 +134,15 @@ public class ExchangeRatesController : ControllerBase {
     /// <returns></returns>
     [HttpPut("{baseCurrency}/{quoteCurrency}")]
     public async Task<ActionResult<ExchangeRate>> UpdateRate(string baseCurrency, string quoteCurrency, ExchangeRate request) {
+        baseCurrency = Normalize(baseCurrency);
+        quoteCurrency = Normalize(quoteCurrency);
+
         var priceError = ValidatePrices(request);
         if (!string.IsNullOrEmpty(priceError)) {
             return BadRequest(priceError);
         }
 
-        var rate = await FindActiveRate(baseCurrency, quoteCurrency);
+        var rate = await FindRate(baseCurrency, quoteCurrency, activeOnly: true);
         if (rate is null) {
             return NotFound();
         }
@@ -145,33 +163,33 @@ public class ExchangeRatesController : ControllerBase {
     /// <returns></returns>
     [HttpDelete("{baseCurrency}/{quoteCurrency}")]
     public async Task<IActionResult> DeleteRate(string baseCurrency, string quoteCurrency) {
+        baseCurrency = Normalize(baseCurrency);
+        quoteCurrency = Normalize(quoteCurrency);
+
         var rate = await FindRate(baseCurrency, quoteCurrency);
 
         if (rate is null) {
             return NotFound();
         }
 
-        if (rate.Status) {
+        var wasActive = rate.Status;
+
+        if (wasActive) {
             rate.Status = false;
             rate.UpdatedAt = Now;
             await _dbContext.SaveChangesAsync();
             _logger.LogInformation("Soft deleted rate {BaseCurrency}/{QuoteCurrency}.", rate.BaseCurrency, rate.QuoteCurrency);
         }
 
-        return Ok(new { message = $"Exchange rate {rate.BaseCurrency}/{rate.QuoteCurrency} deleted." });
+        var message = wasActive
+            ? $"Exchange rate {rate.BaseCurrency}/{rate.QuoteCurrency} deleted."
+            : $"No active exchange rate {rate.BaseCurrency}/{rate.QuoteCurrency} found.";
+
+        return Ok(new { message });
     }
 
-    private Task<ExchangeRate?> FindActiveRate(string baseCurrency, string quoteCurrency) {
-        baseCurrency = Normalize(baseCurrency);
-        quoteCurrency = Normalize(quoteCurrency);
-        return _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && rate.Status);
-    }
-
-    private Task<ExchangeRate?> FindRate(string baseCurrency, string quoteCurrency) {
-        baseCurrency = Normalize(baseCurrency);
-        quoteCurrency = Normalize(quoteCurrency);
-        return _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency);
-    }
+    private Task<ExchangeRate?> FindRate(string baseCurrency, string quoteCurrency, bool activeOnly = false) =>
+        _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && (!activeOnly || rate.Status));
 
     /// <summary>
     /// Fetches the exchange rate from Alpha Vantage API and stores it in the database. If the currencies do not exist, they are created.
@@ -180,9 +198,6 @@ public class ExchangeRatesController : ControllerBase {
     /// <param name="quoteCurrency"></param>
     /// <returns></returns>
     private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(string baseCurrency, string quoteCurrency) {
-        baseCurrency = Normalize(baseCurrency);
-        quoteCurrency = Normalize(quoteCurrency);
-
         string QUERY_URL = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={baseCurrency}&to_currency={quoteCurrency}&apikey={_apiKey}";
         Uri queryUri = new(QUERY_URL);
 
@@ -223,22 +238,40 @@ public class ExchangeRatesController : ControllerBase {
 
         await EnsureCurrenciesExistAsync(baseCurrency, quoteCurrency);
 
-        // We assume provider a valid bid, ask and lastRefreshed fields. Otherwise, we'd had tryParse validation here.
+        // We assume provider a valid bid, ask and lastRefreshed fields but we check anyway
+        if (!decimal.TryParse(quote.BidPrice, out var bid) || !decimal.TryParse(quote.AskPrice,out var ask) || !DateTime.TryParse(quote.LastRefreshed, out var lastRefreshed)) {
+            _logger.LogWarning("Alpha Vantage returned an unreadable rate for {BaseCurrency}/{QuoteCurrency}: bid {Bid}, ask {Ask}, last refreshed {LastRefreshed}.", baseCurrency, quoteCurrency, quote.BidPrice, quote.AskPrice, quote.LastRefreshed);
+            return Problem(detail: "The exchange rate provider returned an invalid data.");
+        }
+
         var rate = new ExchangeRate {
             BaseCurrency = baseCurrency,
             QuoteCurrency = quoteCurrency,
-            Bid = decimal.Parse(quote.BidPrice),
-            Ask = decimal.Parse(quote.AskPrice),
+            Bid = bid,
+            Ask = ask,
             Status = true,
             CreatedAt = Now,
-            UpdatedAt = DateTime.Parse(quote.LastRefreshed)
+            UpdatedAt = lastRefreshed
         };
 
-        _dbContext.ExchangeRates.Add(rate);
-        await _dbContext.SaveChangesAsync();
-        _logger.LogInformation("Stored rate {BaseCurrency}/{QuoteCurrency} from Alpha Vantage with bid {Bid} and ask {Ask}.", baseCurrency, quoteCurrency, rate.Bid, rate.Ask);
+        await SaveNewRateAsync(rate, "Alpha Vantage");
+
         return rate;
     }
+
+    // Adds the rate and raises the created event, so both insert paths behave the same.
+    private async Task<ExchangeRate> SaveNewRateAsync(ExchangeRate rate, string source) {
+        _dbContext.ExchangeRates.Add(rate);
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation("Stored new rate {BaseCurrency}/{QuoteCurrency} from {Source} with bid {Bid} and ask {Ask}.", rate.BaseCurrency, rate.QuoteCurrency, source, rate.Bid, rate.Ask);
+        await _eventPublisher.PublishAsync(ToEvent(rate));
+
+        return rate;
+    }
+
+    private static ExchangeRateCreatedEvent ToEvent(ExchangeRate rate) =>
+        new(rate.BaseCurrency, rate.QuoteCurrency, rate.Bid, rate.Ask, rate.CreatedAt);
 
     // We ensure the currencies exist in the Currencies table. If they don't, we add them
     private async Task EnsureCurrenciesExistAsync(string baseCurrency, string quoteCurrency) {
@@ -264,8 +297,6 @@ public class ExchangeRatesController : ControllerBase {
             CreatedAt = Now,
             UpdatedAt = Now
         });
-
-        await _dbContext.SaveChangesAsync();
     }
 
     // Upper-cases a currency code so "usd" and "USD" are the same currency.
