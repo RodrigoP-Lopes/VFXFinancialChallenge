@@ -1,4 +1,3 @@
-using System.Data;
 using System.Text.Json;
 using ForeignExchangeRateAPI.Data;
 using ForeignExchangeRateAPI.Domain;
@@ -44,10 +43,10 @@ public class ExchangeRatesController : ControllerBase {
 
         if (rates.Count == 0) {
             _logger.LogInformation("No exchange rates found.");
-            return Ok(new { message = "No exchange rates found." });
+        } else {
+            _logger.LogInformation("Returning {Count} exchange rates.", rates.Count);
         }
 
-        _logger.LogInformation("Returning {Count} exchange rates.", rates.Count);
         return Ok(rates);
     }
 
@@ -59,18 +58,21 @@ public class ExchangeRatesController : ControllerBase {
     /// <returns></returns>
     [HttpGet("{baseCurrency}/{quoteCurrency}")]
     public async Task<ActionResult<ExchangeRate>> GetRate(string baseCurrency, string quoteCurrency) {
-        baseCurrency = Normalize(baseCurrency);
-        quoteCurrency = Normalize(quoteCurrency);
+        var normalizedBase = NormalizeCurrencyCode(baseCurrency);
+        var normalizedQuote = NormalizeCurrencyCode(quoteCurrency);
 
-        var rate = await FindRate(baseCurrency, quoteCurrency);
+        if (normalizedBase is null || normalizedQuote is null) {
+            return BadRequest("Currency codes must be three letters.");
+        }
+
+        var rate = await FindRate(normalizedBase, normalizedQuote);
 
         if (rate is not null) {
             _logger.LogDebug("Rate {BaseCurrency}/{QuoteCurrency} served from the database with status {Status}.", rate.BaseCurrency, rate.QuoteCurrency, rate.Status);
             return rate.Status ? rate : NotFound();
         }
 
-        _logger.LogInformation("Rate {BaseCurrency}/{QuoteCurrency} is not stored; calling Alpha Vantage.", baseCurrency, quoteCurrency);
-        return await FetchAlphaVantageRate(baseCurrency, quoteCurrency);
+        return await FetchAlphaVantageRate(normalizedBase, normalizedQuote);
     }
 
     /// <summary>
@@ -79,15 +81,19 @@ public class ExchangeRatesController : ControllerBase {
     /// <param name="request"></param>
     /// <returns></returns>
     [HttpPost]
-    public async Task<ActionResult<ExchangeRate>> CreateRate(ExchangeRate request) {
-        var baseCurrency = Normalize(request.BaseCurrency);
-        var quoteCurrency = Normalize(request.QuoteCurrency);
+    public async Task<ActionResult<ExchangeRate>> CreateRate(CreateExchangeRateRequest request) {
+        var baseCurrency = NormalizeCurrencyCode(request.BaseCurrency);
+        var quoteCurrency = NormalizeCurrencyCode(request.QuoteCurrency);
+
+        if (baseCurrency is null || quoteCurrency is null) {
+            return BadRequest("Currency codes must be three letters.");
+        }
 
         if (baseCurrency == quoteCurrency) {
             return BadRequest("Base and quote currencies must be different.");
         }
 
-        var priceError = ValidatePrices(request);
+        var priceError = ValidatePrices(request.Bid, request.Ask);
         if (!string.IsNullOrEmpty(priceError)) {
             return BadRequest(priceError);
         }
@@ -120,9 +126,9 @@ public class ExchangeRatesController : ControllerBase {
             UpdatedAt = Now
         };
 
-        await SaveNewRateAsync(rate, "manual");
+        await SaveNewRateAsync(rate, "Internal");
 
-        return rate;
+        return CreatedAtAction(nameof(GetRate), new { baseCurrency = rate.BaseCurrency, quoteCurrency = rate.QuoteCurrency }, rate);
     }
 
     /// <summary>
@@ -133,16 +139,20 @@ public class ExchangeRatesController : ControllerBase {
     /// <param name="request"></param>
     /// <returns></returns>
     [HttpPut("{baseCurrency}/{quoteCurrency}")]
-    public async Task<ActionResult<ExchangeRate>> UpdateRate(string baseCurrency, string quoteCurrency, ExchangeRate request) {
-        baseCurrency = Normalize(baseCurrency);
-        quoteCurrency = Normalize(quoteCurrency);
+    public async Task<ActionResult<ExchangeRate>> UpdateRate(string baseCurrency, string quoteCurrency, UpdateExchangeRateRequest request) {
+        var normalizedBase = NormalizeCurrencyCode(baseCurrency);
+        var normalizedQuote = NormalizeCurrencyCode(quoteCurrency);
 
-        var priceError = ValidatePrices(request);
+        if (normalizedBase is null || normalizedQuote is null) {
+            return BadRequest("Currency codes must be three letters.");
+        }
+
+        var priceError = ValidatePrices(request.Bid, request.Ask);
         if (!string.IsNullOrEmpty(priceError)) {
             return BadRequest(priceError);
         }
 
-        var rate = await FindRate(baseCurrency, quoteCurrency, activeOnly: true);
+        var rate = await FindRate(normalizedBase, normalizedQuote, activeOnly: true);
         if (rate is null) {
             return NotFound();
         }
@@ -163,29 +173,30 @@ public class ExchangeRatesController : ControllerBase {
     /// <returns></returns>
     [HttpDelete("{baseCurrency}/{quoteCurrency}")]
     public async Task<IActionResult> DeleteRate(string baseCurrency, string quoteCurrency) {
-        baseCurrency = Normalize(baseCurrency);
-        quoteCurrency = Normalize(quoteCurrency);
+        var normalizedBase = NormalizeCurrencyCode(baseCurrency);
+        var normalizedQuote = NormalizeCurrencyCode(quoteCurrency);
 
-        var rate = await FindRate(baseCurrency, quoteCurrency);
+        if (normalizedBase is null || normalizedQuote is null) {
+            return BadRequest("Currency codes must be three letters.");
+        }
+
+        var rate = await FindRate(normalizedBase, normalizedQuote);
 
         if (rate is null) {
             return NotFound();
         }
 
-        var wasActive = rate.Status;
-
-        if (wasActive) {
-            rate.Status = false;
-            rate.UpdatedAt = Now;
-            await _dbContext.SaveChangesAsync();
-            _logger.LogInformation("Soft deleted rate {BaseCurrency}/{QuoteCurrency}.", rate.BaseCurrency, rate.QuoteCurrency);
+        if (!rate.Status) {
+            _logger.LogInformation("Rate {BaseCurrency}/{QuoteCurrency} was already inactive.", rate.BaseCurrency, rate.QuoteCurrency);
+            return NoContent();
         }
 
-        var message = wasActive
-            ? $"Exchange rate {rate.BaseCurrency}/{rate.QuoteCurrency} deleted."
-            : $"No active exchange rate {rate.BaseCurrency}/{rate.QuoteCurrency} found.";
+        rate.Status = false;
+        rate.UpdatedAt = Now;
+        await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("Soft deleted rate {BaseCurrency}/{QuoteCurrency}.", rate.BaseCurrency, rate.QuoteCurrency);
 
-        return Ok(new { message });
+        return NoContent();
     }
 
     private Task<ExchangeRate?> FindRate(string baseCurrency, string quoteCurrency, bool activeOnly = false) =>
@@ -198,7 +209,9 @@ public class ExchangeRatesController : ControllerBase {
     /// <param name="quoteCurrency"></param>
     /// <returns></returns>
     private async Task<ActionResult<ExchangeRate>> FetchAlphaVantageRate(string baseCurrency, string quoteCurrency) {
-        string QUERY_URL = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={baseCurrency}&to_currency={quoteCurrency}&apikey={_apiKey}";
+        _logger.LogInformation("Rate {BaseCurrency}/{QuoteCurrency} is not stored; calling Alpha Vantage.", baseCurrency, quoteCurrency);
+
+        string QUERY_URL = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={Uri.EscapeDataString(baseCurrency)}&to_currency={Uri.EscapeDataString(quoteCurrency)}&apikey={Uri.EscapeDataString(_apiKey)}";
         Uri queryUri = new(QUERY_URL);
 
         AlphaVantageExchangeRateResponse? response;
@@ -209,24 +222,27 @@ public class ExchangeRatesController : ControllerBase {
                 var json = await http.GetStringAsync(queryUri);
                 response = JsonSerializer.Deserialize<AlphaVantageExchangeRateResponse>(json);
             }
-        } catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException) {
+        } catch (JsonException exception) {
+            _logger.LogError(exception, "Alpha Vantage returned an unreadable payload for {BaseCurrency}/{QuoteCurrency}.", baseCurrency, quoteCurrency);
+            return Problem(statusCode: StatusCodes.Status502BadGateway, detail: "The exchange rate provider returned an unreadable response.");
+        } catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException) {
             _logger.LogError(exception, "Alpha Vantage request for {BaseCurrency}/{QuoteCurrency} failed.", baseCurrency, quoteCurrency);
-            return Problem(detail: "The exchange rate provider is unavailable.");
+            return Problem(statusCode: StatusCodes.Status503ServiceUnavailable, detail: "The exchange rate provider is unavailable.");
         }
 
         if (response == null) {
             _logger.LogWarning("Alpha Vantage returned an empty response for {BaseCurrency}/{QuoteCurrency}.", baseCurrency, quoteCurrency);
-            return Problem(detail: "The exchange rate provider returned an empty response.");
+            return Problem(statusCode: StatusCodes.Status502BadGateway, detail: "The exchange rate provider returned an empty response.");
         }
 
         if (!string.IsNullOrEmpty(response.ErrorMessage)) {
             _logger.LogWarning("Alpha Vantage rejected {BaseCurrency}/{QuoteCurrency}: {ProviderMessage}", baseCurrency, quoteCurrency, response.ErrorMessage);
-            return Problem(detail: "The exchange rate provider rejected the request.");
+            return Problem(statusCode: StatusCodes.Status502BadGateway, detail: "The exchange rate provider rejected the request.");
         }
 
         if (!string.IsNullOrEmpty(response.Information)) {
             _logger.LogWarning("Alpha Vantage quota or key problem for {BaseCurrency}/{QuoteCurrency}: {ProviderMessage}", baseCurrency, quoteCurrency, response.Information);
-            return Problem(detail: "The exchange rate provider is temporarily unavailable.");
+            return Problem(statusCode: StatusCodes.Status503ServiceUnavailable, detail: "The exchange rate provider is temporarily unavailable.");
         }
 
         var quote = response.RealtimeCurrencyExchangeRate;
@@ -239,9 +255,9 @@ public class ExchangeRatesController : ControllerBase {
         await EnsureCurrenciesExistAsync(baseCurrency, quoteCurrency);
 
         // We assume provider a valid bid, ask and lastRefreshed fields but we check anyway
-        if (!decimal.TryParse(quote.BidPrice, out var bid) || !decimal.TryParse(quote.AskPrice,out var ask) || !DateTime.TryParse(quote.LastRefreshed, out var lastRefreshed)) {
+        if (!decimal.TryParse(quote.BidPrice, out var bid) || !decimal.TryParse(quote.AskPrice, out var ask) || !DateTime.TryParse(quote.LastRefreshed, out var lastRefreshed)) {
             _logger.LogWarning("Alpha Vantage returned an unreadable rate for {BaseCurrency}/{QuoteCurrency}: bid {Bid}, ask {Ask}, last refreshed {LastRefreshed}.", baseCurrency, quoteCurrency, quote.BidPrice, quote.AskPrice, quote.LastRefreshed);
-            return Problem(detail: "The exchange rate provider returned an invalid data.");
+            return Problem(statusCode: StatusCodes.Status502BadGateway, detail: "The exchange rate provider returned an invalid data.");
         }
 
         var rate = new ExchangeRate {
@@ -299,15 +315,19 @@ public class ExchangeRatesController : ControllerBase {
         });
     }
 
-    // Upper-cases a currency code so "usd" and "USD" are the same currency.
-    private static string Normalize(string code) => code.ToUpperInvariant();
+    // Trims and upper-cases a currency code, returning null when it is not three letters.
+    private static string? NormalizeCurrencyCode(string? code) {
+        var normalized = code?.Trim().ToUpperInvariant();
 
-    private static string? ValidatePrices(ExchangeRate request) {
-        if (request.Bid <= 0 || request.Ask <= 0) {
+        return normalized?.Length == 3 ? normalized : null;
+    }
+
+    private static string? ValidatePrices(decimal bid, decimal ask) {
+        if (bid <= 0 || ask <= 0) {
             return "Bid and ask must be greater than zero.";
         }
 
-        return request.Ask < request.Bid ? "Ask must be greater than or equal to the bid." : null;
+        return ask < bid ? "Ask must be greater than or equal to the bid." : null;
     }
 
 }

@@ -75,4 +75,16 @@ dotnet test
 | `UpdateRate_ChangesPrices` | Updates the bid and ask of an existing rate. |
 | `DeleteRate_RemovesRateFromList` | Soft deletes a rate so it no longer appears in the list. |
 | `CreateRate_WithNewCurrencies_InsertsTheCurrencies` | Currencies that do not exist yet are inserted with the rate. |
-| `GetRate_WhenNotStored_FetchesFromProviderAndStoresIt` | Fetches a missing pair from Alpha Vantage, stores it and inserts its currencies. |
+| `CreateRate_WhenPairIsActive_ReturnsConflict` | Rejects a pair that is already active. |
+| `GetRate_WhenSoftDeleted_ReturnsNotFound` | Returns 404 for a soft deleted pair without fetching it from the provider again. |
+| `CreateRate_WhenPairIsSoftDeleted_ReactivatesIt` | Reactivates a soft deleted pair instead of inserting a second row. |
+| `CreateRate_WithInvalidCurrencyCode_ReturnsBadRequest` | Returns 400 for a currency code that is not three letters |
+| `CreateRate_WithAskBelowBid_ReturnsBadRequest` | Returns 400 when the ask is lower than the bid. |
+
+## Limitations and improvements
+
+- The Alpha Vantage integration is currently implemented in the controller (`FetchAlphaVantageRate`). It could be moved to a separate file/service (for example `Services/AlphaVantageExchangeRateService.cs`) so that the controller only orchestrates the request.
+
+- There is no endpoint for currencies. The `Currencies` table is only filled implicitly when a rate is created. A `CurrenciesController` would make the currency data manageable.
+
+- Hosted elsewhere, the environment variables would become GitHub repository secrets and a GitHub Actions pipeline could build, test and deploy the API.

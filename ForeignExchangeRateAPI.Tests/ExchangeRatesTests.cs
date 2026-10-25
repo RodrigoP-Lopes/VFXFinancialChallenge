@@ -1,6 +1,7 @@
 using ForeignExchangeRateAPI.Controllers;
 using ForeignExchangeRateAPI.Domain;
 using ForeignExchangeRateAPI.Events;
+using ForeignExchangeRateAPI.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -10,11 +11,12 @@ namespace ForeignExchangeRateAPI.Tests;
 public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
 
     private readonly DatabaseFixture _fixture;
+    private readonly Mock<IExchangeRateEventPublisher> _publisher = new();
     private readonly ExchangeRatesController _controller;
 
     public ExchangeRatesTests(DatabaseFixture fixture) {
         _fixture = fixture;
-        _controller = new ExchangeRatesController(_fixture.Context, _fixture.Configuration, Mock.Of<ILogger<ExchangeRatesController>>(), Mock.Of<IExchangeRateEventPublisher>());
+        _controller = new ExchangeRatesController(_fixture.Context, _fixture.Configuration, Mock.Of<ILogger<ExchangeRatesController>>(), _publisher.Object);
     }
 
     /// <summary>
@@ -38,7 +40,8 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
     public async Task CreateRate_PersistsRate() {
         var result = await CreateRate("GBP", "JPY", 190.50m, 191.50m);
 
-        var created = Assert.IsType<ExchangeRate>(result.Value);
+        var createdAt = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var created = Assert.IsType<ExchangeRate>(createdAt.Value);
         var fetched = await _controller.GetRate("GBP", "JPY");
         var fetchedRate = Assert.IsType<ExchangeRate>(fetched.Value);
 
@@ -53,7 +56,7 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
     public async Task UpdateRate_ChangesPrices() {
         await CreateRate("EUR", "GBP", 0.85m, 0.86m);
 
-        var result = await _controller.UpdateRate("EUR", "GBP", CreateExchangeRate("EUR", "GBP", 0.87m, 0.88m));
+        var result = await _controller.UpdateRate("EUR", "GBP", new UpdateExchangeRateRequest { Bid = 0.87m, Ask = 0.88m });
 
         var updated = Assert.IsType<ExchangeRate>(result.Value);
         Assert.Equal(0.87m, updated.Bid);
@@ -69,8 +72,7 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
 
         var result = await _controller.DeleteRate("CNY", "JPY");
 
-        var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(ok.Value);
+        Assert.IsType<NoContentResult>(result);
 
         var rates = await _controller.GetRates();
         var okRates = Assert.IsType<OkObjectResult>(rates);
@@ -92,33 +94,73 @@ public class ExchangeRatesTests : IClassFixture<DatabaseFixture> {
     }
 
     /// <summary>
-    /// Fetches a missing pair from Alpha Vantage and stores the result. Checks currencies are also inserted if they do not exist in the database.
+    /// Rejects a pair that is already active.
     /// </summary>
     [Fact]
-    public async Task GetRate_WhenNotStored_FetchesFromProviderAndStoresIt() {
-        var result = await _controller.GetRate("BRL", "GBP");
+    public async Task CreateRate_WhenPairIsActive_ReturnsConflict() {
 
-        var rate = Assert.IsType<ExchangeRate>(result.Value);
-        Assert.True(rate.Id > 0);
-        Assert.NotNull(rate.Bid);
-        Assert.NotNull(rate.Ask);
-        Assert.Contains(_fixture.Context.ExchangeRates, stored => stored.BaseCurrency == "BRL" && stored.QuoteCurrency == "GBP");
+        await CreateRate("TRY", "INR", 3.01m, 3.02m);
 
-        var codes = _fixture.Context.Currencies.Select(currency => currency.Code).ToList();
-        Assert.Contains("BRL", codes);
-        Assert.Contains("GBP", codes);
+        var result = await CreateRate("TRY", "INR", 3.10m, 3.11m);
+
+        Assert.IsType<ConflictObjectResult>(result.Result);
+    }
+
+    /// <summary>
+    /// Returns 404 for a soft deleted pair without fetching it from the provider again.
+    /// </summary>
+    [Fact]
+    public async Task GetRate_WhenSoftDeleted_ReturnsNotFound()
+    {
+        await CreateRate("HUF", "RON", 0.0123m, 0.0124m);
+        await _controller.DeleteRate("HUF", "RON");
+
+        var result = await _controller.GetRate("HUF", "RON");
+
+        Assert.IsType<NotFoundResult>(result.Result);
+    }
+
+    /// <summary>
+    /// Reactivates a soft deleted pair instead of inserting a second row.
+    /// </summary>
+    [Fact]
+    public async Task CreateRate_WhenPairIsSoftDeleted_ReactivatesIt() {
+        var created = await CreateRate("PLN", "CZK", 5.51m, 5.52m);
+        await _controller.DeleteRate("PLN", "CZK");
+
+        var result = await CreateRate("PLN", "CZK", 5.61m, 5.62m);
+
+        var reactivated = Assert.IsType<ExchangeRate>(result.Value);
+        Assert.True(reactivated.Status);
+        Assert.Equal(5.61m, reactivated.Bid);
+    }
+
+    /// <summary>
+    /// Returns 400 for a currency code that is not three letters
+    /// </summary>
+    [Fact]
+    public async Task CreateRate_WithInvalidCurrencyCode_ReturnsBadRequest() {
+        var result = await CreateRate("USDD", "EUR", 0.91m, 0.92m);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    /// <summary>
+    /// Returns 400 when the ask is lower than the bid.
+    /// </summary>
+    [Fact]
+    public async Task CreateRate_WithAskBelowBid_ReturnsBadRequest() {
+        var result = await CreateRate("JPY", "KRW", 1.50m, 1.40m);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
     private Task<ActionResult<ExchangeRate>> CreateRate(string baseCurrency, string quoteCurrency, decimal bid, decimal ask) {
-        return _controller.CreateRate(CreateExchangeRate(baseCurrency, quoteCurrency, bid, ask));
-    }
-
-    private static ExchangeRate CreateExchangeRate(string baseCurrency, string quoteCurrency, decimal bid, decimal ask) {
-        return new ExchangeRate {
+        return _controller.CreateRate(new CreateExchangeRateRequest {
             BaseCurrency = baseCurrency,
             QuoteCurrency = quoteCurrency,
             Bid = bid,
             Ask = ask
-        };
+        });
     }
 }
