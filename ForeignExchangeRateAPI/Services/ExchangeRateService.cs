@@ -280,14 +280,12 @@ public class ExchangeRateService {
         _dbContext.ExchangeRates.FirstOrDefaultAsync(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && (!activeOnly || rate.Status));
 
     // Adds the rate and raises the created event, so both insert paths behave the same.
-    private async Task<ExchangeRate> SaveNewRateAsync(ExchangeRate rate, string source) {
+    private async Task SaveNewRateAsync(ExchangeRate rate, string source) {
         _dbContext.ExchangeRates.Add(rate);
         await _dbContext.SaveChangesAsync();
 
         _logger.LogInformation("Stored new rate {BaseCurrency}/{QuoteCurrency} from {Source} with bid {Bid} and ask {Ask}.", rate.BaseCurrency, rate.QuoteCurrency, source, rate.Bid, rate.Ask);
         await _eventPublisher.PublishAsync(ToEvent(rate));
-
-        return rate;
     }
 
     private static ExchangeRateCreatedEvent ToEvent(ExchangeRate rate) =>

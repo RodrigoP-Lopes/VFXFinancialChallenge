@@ -1,4 +1,3 @@
-using ForeignExchangeRateAPI.Common;
 using ForeignExchangeRateAPI.Data;
 using ForeignExchangeRateAPI.Events;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +8,6 @@ var connectionString = "Host=localhost;Port=5432;Database=vfx_exrates;Username=v
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
-builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddSingleton<IExchangeRateEventPublisher, RabbitMqExchangeRateEventPublisher>();
 builder.Services.AddEndpointsApiExplorer();
