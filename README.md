@@ -98,8 +98,6 @@ Each test runs against its own in-memory database.
 
 ## Limitations and improvements
 
-- The Alpha Vantage integration is currently implemented in the controller (`FetchAlphaVantageRate`). It could be moved to a separate file/service (for example `Services/AlphaVantageExchangeRateService.cs`) so that the controller only orchestrates the request.
-
 - There is no endpoint for currencies. The `Currencies` table is only filled implicitly when a rate is created. A `CurrenciesController` would make the currency data manageable.
 
 - Hosted elsewhere, the environment variables would become GitHub repository secrets and a GitHub Actions pipeline could build, test and deploy the API.
