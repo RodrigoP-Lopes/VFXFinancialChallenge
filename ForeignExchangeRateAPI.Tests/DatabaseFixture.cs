@@ -5,28 +5,25 @@ using Microsoft.Extensions.Configuration;
 namespace ForeignExchangeRateAPI.Tests;
 
 /// <summary>
-/// Gives each test class an in-memory database and the API's configuration.
+/// Gives each test its own in-memory database and the API's configuration.
 /// </summary>
-public class DatabaseFixture : IDisposable {
-    public AppDbContext Context { get; }
-
+public class DatabaseFixture {
     public IConfiguration Configuration { get; }
 
     public DatabaseFixture() {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-
-        Context = new AppDbContext(options);
-
         Configuration = new ConfigurationBuilder()
-            .AddUserSecrets(typeof(AppDbContext).Assembly, optional: true)
             .AddEnvironmentVariables()
             .Build();
     }
 
-    public void Dispose() {
-        Context.Database.EnsureDeleted();
-        Context.Dispose();
+    /// <summary>
+    /// Creates a context on a database of its own, so tests never see each other's data.
+    /// </summary>
+    public AppDbContext CreateContext() {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        return new AppDbContext(options);
     }
 }

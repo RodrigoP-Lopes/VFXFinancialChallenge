@@ -188,7 +188,7 @@ public class ExchangeRatesController : ControllerBase {
 
         if (!rate.Status) {
             _logger.LogInformation("Rate {BaseCurrency}/{QuoteCurrency} was already inactive.", rate.BaseCurrency, rate.QuoteCurrency);
-            return NoContent();
+            return Ok();
         }
 
         rate.Status = false;
@@ -196,7 +196,7 @@ public class ExchangeRatesController : ControllerBase {
         await _dbContext.SaveChangesAsync();
         _logger.LogInformation("Soft deleted rate {BaseCurrency}/{QuoteCurrency}.", rate.BaseCurrency, rate.QuoteCurrency);
 
-        return NoContent();
+        return Ok();
     }
 
     private Task<ExchangeRate?> FindRate(string baseCurrency, string quoteCurrency, bool activeOnly = false) =>

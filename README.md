@@ -51,7 +51,12 @@ The data can be inspected with any PostgreSQL client (e.g. DBeaver): host `local
 | DELETE | `/api/rates/{base}/{quote}` | Soft delete |
 
 ```json
-{ "baseCurrency": "USD", "quoteCurrency": "EUR", "bid": 0.91, "ask": 0.92 }
+{ 
+    "baseCurrency": "USD", 
+    "quoteCurrency": "EUR", 
+    "bid": 0.91, 
+    "ask": 0.92 
+}
 ```
 
 A pair that is not stored is requested from Alpha Vantage and saved. Currencies missing from the `Currencies` table are inserted automatically. 
@@ -65,21 +70,31 @@ The queue is declared on the first publish, so it does not exist until a rate ha
 ## Tests
 
 ```
+cd ForeignExchangeRateAPI
 dotnet test
 ```
 
+Each test runs against its own in-memory database.
+
 | Test | Verifies |
 | --- | --- |
-| `GetRates_ReturnsStoredRates` | Returns the rates currently stored in the database. |
-| `CreateRate_PersistsRate` | Creates a rate and returns the same record on a later read. |
-| `UpdateRate_ChangesPrices` | Updates the bid and ask of an existing rate. |
-| `DeleteRate_RemovesRateFromList` | Soft deletes a rate so it no longer appears in the list. |
-| `CreateRate_WithNewCurrencies_InsertsTheCurrencies` | Currencies that do not exist yet are inserted with the rate. |
-| `CreateRate_WhenPairIsActive_ReturnsConflict` | Rejects a pair that is already active. |
-| `GetRate_WhenSoftDeleted_ReturnsNotFound` | Returns 404 for a soft deleted pair without fetching it from the provider again. |
-| `CreateRate_WhenPairIsSoftDeleted_ReactivatesIt` | Reactivates a soft deleted pair instead of inserting a second row. |
-| `CreateRate_WithInvalidCurrencyCode_ReturnsBadRequest` | Returns 400 for a currency code that is not three letters |
-| `CreateRate_WithAskBelowBid_ReturnsBadRequest` | Returns 400 when the ask is lower than the bid. |
+| `GetRates_ReturnsStoredRatesOrderedByPair` | Returns the stored rates ordered by base currency and then by quote currency |
+| `GetRates_WhenNoRatesAreStored_ReturnsEmptyCollection` | Returns an empty collection on an empty database |
+| `GetRate_WhenSoftDeleted_ReturnsNotFound` | Returns 404 for a soft deleted pair |
+| `GetRate_WithInvalidCurrencyCode_ReturnsBadRequest` | Returns 400 for a pair whose code is not three letters |
+| `CreateRate_PersistsRateAndPublishesEvent` | Creates a rate, reads it back and raises the created event with its values |
+| `CreateRate_InsertsMissingCurrenciesAndReusesExistingOnes` | Inserts the currencies that do not exist yet once, and stores a currency reused by two rates only once |
+| `CreateRate_WhenPairIsActive_ReturnsConflictWithoutPublishingEvent` | Rejects a pair that is already active and raises no event |
+| `CreateRate_WhenPairIsSoftDeleted_ReactivatesIt` | Reactivates a soft deleted pair instead of inserting a second row |
+| `CreateRate_WithInvalidRequest_ReturnsBadRequest` | Returns 400 when the pair or the prices are invalid |
+| `CreateRate_NormalizesCurrencyCodes` | Trims and upper-cases the codes, so a lower case request is stored and read back in the canonical form |
+| `UpdateRate_ChangesPrices` | Updates the bid and ask of an existing rate |
+| `UpdateRate_WhenPairIsMissing_ReturnsNotFound` | Returns 404 when the pair was never stored |
+| `UpdateRate_WhenPairIsSoftDeleted_ReturnsNotFound` | Returns 404 when the pair was soft deleted and is updated again |
+| `UpdateRate_WithInvalidCurrencyCode_ReturnsBadRequest` | Returns 400 for a pair whose code is not three letters |
+| `DeleteRate_WhenPairIsMissing_ReturnsNotFound` | Returns 404 when the pair was never stored |
+| `DeleteRate_WhenAlreadyDeleted_ReturnsOk` | Deleting an inactive pair again still reports success |
+| `DeleteRate_WithInvalidCurrencyCode_ReturnsBadRequest` | Returns 400 for a pair whose code is not three letters |
 
 ## Limitations and improvements
 
